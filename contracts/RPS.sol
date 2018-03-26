@@ -1,4 +1,4 @@
-pragma solidity ^0.4.6;
+pragma solidity ^0.4.21;
 
 import "./Owned.sol";
 
@@ -20,14 +20,14 @@ contract RPS is Owned
     uint constant DEADLINE_DEFAULT = 100;
     mapping(address => Player) public players;
     uint public deadline;
-    Player[] playersArray;
+    Player[] public playersArray;
     uint decisionsLeft;
 
     //0 - waiting for players decision
     //1 - waiting for salt
     //2 - game over
     //3 - game over and funds are withdrawed
-    StateValues state = StateValues.DECISION;
+    StateValues state = StateValues.GAME_OVER_ALL_WITHDRAWED;
 
     event LogDecisionSubmited(address player, bytes32 encryptedDecision);
     event LogDecisionDecrypted(address player, DecisionValues decision);
@@ -47,10 +47,12 @@ contract RPS is Owned
         _;
     }
     
-    function RPS() 
+    function RPS(address[] addresses, uint[] money) 
     public
-    {        
+    {     
+        startGame(addresses, money);   
     }
+
 
     function startGame(address[] addresses, uint[] money)
     onlyOwner
@@ -76,10 +78,10 @@ contract RPS is Owned
     function setState(StateValues _state)
     private
     {
-            decisionsLeft = playersArray.length;
-            deadline = block.number + DEADLINE_DEFAULT;
-            state = _state;
-            emit LogStateChanged(msg.sender, _state);
+        decisionsLeft = playersArray.length;
+        deadline = block.number + DEADLINE_DEFAULT;
+        state = _state;
+        emit LogStateChanged(msg.sender, _state);
     }
 
     function submitDecision(bytes32 encryptedDecision)
@@ -96,6 +98,7 @@ contract RPS is Owned
         emit LogDecisionSubmited(msg.sender, encryptedDecision);
         if(decisionsLeft == 0)
            setState(StateValues.SALT);
+        
             
     }
 
@@ -118,7 +121,7 @@ contract RPS is Owned
          setState(StateValues.GAME_OVER);
     }    
 
-    function GetReward()
+    function getReward()
     onlyOwner
     resultReady
     public
@@ -127,6 +130,7 @@ contract RPS is Owned
         require(state == StateValues.GAME_OVER || (state != StateValues.GAME_OVER_ALL_WITHDRAWED && block.number > deadline));
 
         money = new uint[](playersArray.length);
+      
         int winner = determineWinner();
         if(winner == -1)
         {
