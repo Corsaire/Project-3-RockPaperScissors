@@ -40,48 +40,87 @@ contract RPS is Owned
         require(players[msg.sender].addr != 0);
         _;
     }
+
+    modifier resultReady()
+    {
+        require(state == StateValues.GAME_OVER || (state != StateValues.GAME_OVER_ALL_WITHDRAWED && block.number > deadline));
+        _;
+    }
     
     function RPS() 
     public
     {        
     }
 
-    function StartGame(address[] addresses, uint[] money)
+    function startGame(address[] addresses, uint[] money)
     onlyOwner
     public
     {
         require(addresses.length == 2);
         require(addresses.length == money.length);
         require(state == StateValues.GAME_OVER_ALL_WITHDRAWED);
+        moneyPool = 0;
         for(uint i = 0; i < addresses.length; i++)
         {
             require(addresses[i] != 0);
             playersArray.push(Player({addr:addresses[i], money:money[i], encryptedDecision: 0, decision:DecisionValues.NONE, salt:0}));
             players[msg.sender] = playersArray[playersArray.length-1];
+            moneyPool += money[i];
         }
         state = StateValues.DECISION;
+        decisionsLeft = playersArray.length;
+        deadline = block.number + DEADLINE_DEFAULT;
+        emit LogGameStarted(addresses, moneyPool);
     }
-    
+
+    function setState(StateValues _state)
+    private
+    {
+            decisionsLeft = playersArray.length;
+            deadline = block.number + DEADLINE_DEFAULT;
+            state = _state;
+            emit LogStateChanged(msg.sender, _state);
+    }
+
     function submitDecision(bytes32 encryptedDecision)
     onlyPlayer
     public 
     {
-        require(state==StateValues.DECISION);
-        require(block.number<=deadline);
-        require(players[msg.sender].encryptedDecision==0);
+        require(state == StateValues.DECISION);
+        require(block.number <= deadline);
+        require(encryptedDecision != 0);
+        require(players[msg.sender].encryptedDecision == 0);
         players[msg.sender].encryptedDecision = encryptedDecision;
         
         decisionsLeft--;
+        emit LogDecisionSubmited(msg.sender, encryptedDecision);
         if(decisionsLeft == 0)
-        {
-            decisionsLeft = playersArray.length;
-            state = StateValues.SALT;
-            deadline = block.number + DEADLINE_DEFAULT;
-        }
+           setState(StateValues.SALT);
+            
     }
+
+
+    function submitSalt(bytes32 salt, DecisionValues decision)
+    public 
+    onlyPlayer
+    {
+        Player storage p = players[msg.sender];
+        require(state==StateValues.SALT);
+        require(block.number<=deadline);
+        require(p.salt==0);        
+        require(keccak256(p.decision, p.salt) == p.encryptedDecision);
+        p.salt = salt;
+        p.decision = decision;
+
+        decisionsLeft--;
+        emit LogDecisionDecrypted(msg.sender, p.decision);
+        if(decisionsLeft == 0)
+         setState(StateValues.GAME_OVER);
+    }    
 
     function GetReward()
     onlyOwner
+    resultReady
     public
     returns(uint[] memory money)
     {
@@ -105,6 +144,7 @@ contract RPS is Owned
     function determineWinner() 
     view
     public
+    resultReady
     returns(int)
     {        
         DecisionValues decision0 = players[0].decision;      
@@ -129,26 +169,5 @@ contract RPS is Owned
     }
 
     
-
-    function submitSalt(bytes32 salt, DecisionValues decision)
-    public 
-    onlyPlayer
-    {
-        Player storage p = players[msg.sender];
-        require(state==StateValues.SALT);
-        require(block.number<=deadline);
-        require(p.salt==0);        
-        require(keccak256(p.decision, p.salt) == p.encryptedDecision);
-        p.salt = salt;
-        p.decision = decision;
-
-        decisionsLeft--;
-        if(decisionsLeft == 0)
-        {
-            decisionsLeft = playersArray.length;
-            state = StateValues.GAME_OVER;
-            deadline = block.number + DEADLINE_DEFAULT;
-        }
-    }    
     
 }
