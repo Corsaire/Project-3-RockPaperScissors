@@ -5,46 +5,69 @@ import "./RPS.sol";
 
 contract RPSHub is MoneyManager
 {
-    struct GameProposal
+    struct GameOffer
     {
         address player;
         uint bet;
     }
 
-    GameProposal[] gameProposals;
-    RPS[] games;
+    mapping(address => int) public gamesByPlayerIndex;
+    mapping(address => int) public offersByPlayerIndex;
+
+    GameOffer[] public gameOffers;
+    RPS[] public games;
 
     function RPSHub()
     public
     {
     }
 
-
     function getReward(address addr)
     public
     {
-     //   var rps = RPS(addr);
-       // uint[] memory rewards = rps.getReward();
-       // for(uint i=0; i<rewards.length;i++)
-       // {
-        //    address adr = rps.playersArray(i).addr;
-      //      balance[adr] += rewards[i];
-       // }
+        
     }
 
-    function startGame(int proposalIndex, int gameIndex)
-    private
+    function createOffer(uint bet)
+    public
+    hasMoney(bet)
     {
-        RPS rps = new RPS();
-        address[] memory ads = new address[](2);
-        ads[0]=10;
-        ads[1] = 100;
+        require(offersByPlayerIndex[msg.sender] != -1);
+        require(gamesByPlayerIndex[msg.sender] != -1);
         
-        uint[] memory m = new uint[](2);
-        m[0]=1;
-        m[1] = 2;
+        GameOffer storage offer = GameOffer(msg.sender, bet);
+        offersByPlayer[msg.sender] = offer;
 
-        rps.startGame(ads, m);
+
+    }
+
+    function startGame(uint proposalIndex, uint gameIndex)
+    private
+    {        
+        address[] memory ads = new address[](2);
+        uint[] memory money = new uint[](2);
+
+        var proposal = gameOffers[proposalIndex];
+        ads[1] = proposal.player;
+        ads[0] = msg.sender;
+
+        money[0] = proposal.bet;
+        money[1] = proposal.bet;
+
+        RPS rps;        
+        if(gameIndex >= games.length)
+        {
+            rps = new RPS(ads, money);
+            games.push(rps);
+        }
+        else 
+        {
+            rps = games[gameIndex];
+            rps.startGame(ads, money);
+        }
+
+        //gamesByPlayer[ads[0]]
+        
         games.push(rps);
     }
 }

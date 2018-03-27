@@ -19,6 +19,6 @@ contract Owned {
     {
         require(newOwner!=0);
         owner = newOwner;
-        LogNewOwner(msg.sender, newOwner);
+        emit LogNewOwner(msg.sender, newOwner);
     }
 }

@@ -140,7 +140,7 @@ contract RPS is Owned
         }
         else 
             money[uint(winner)] = moneyPool;
-        
+         
         moneyPool = 0;
         state = StateValues.GAME_OVER_ALL_WITHDRAWED;
     }
