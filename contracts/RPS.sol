@@ -4,25 +4,32 @@ import "./Owned.sol";
 
 contract RPS is Owned
 {
-    enum StateValues { DECISION, SALT, GAME_OVER, GAME_OVER_ALL_WITHDRAWED}
+    enum StateValues { WAITING_FOR_PLAYERS, WAITING_FOR_ENCRYPTED_DECISION, WAITING_FOR_SALT, GAME_OVER}
     enum DecisionValues { NONE, ROCK, PAPER, SCISSORS}
 
     struct Player
     {
         address addr;
-        uint money;
         bytes32 encryptedDecision;
-        DecisionValues decision;
-        bytes32 salt;
+        bool active;
     }
 
-    uint moneyPool;
-    uint constant DEADLINE_DEFAULT = 100;
-    mapping(address => Player) public players;
-    uint public deadline;
-    Player[] public playersArray;
-    uint decisionsLeft;
 
+    mapping(address => Player) public players;
+    Player[] public playersArray;
+    
+    uint constant DEADLINE_DEFAULT = 100;
+    uint public deadline;    
+    uint playersCount;
+    
+    address[][4] decisions;
+    uint round;
+    uint messagesReceived;
+    uint uniqueDecisions;
+    uint winningDecision;
+    uint activePlayersCount;
+
+    address winner;
     //0 - waiting for players decision
     //1 - waiting for salt
     //2 - game over
@@ -31,13 +38,13 @@ contract RPS is Owned
 
     event LogDecisionSubmited(address player, bytes32 encryptedDecision);
     event LogDecisionDecrypted(address player, DecisionValues decision);
-    event LogFundsWithdrawed(address[] addresses, uint[] money);
+    event LogFundsWithdrawed(address[] addresses);
     event LogStateChanged(address sender, StateValues state);
-    event LogGameStarted(address[] addresses, uint moneyPool);
+    event LogGameStarted(address[] addresses);
 
     modifier onlyPlayer()
     {
-        require(players[msg.sender].addr != 0);
+        require(players[msg.sender].active);
         _;
     }
 
@@ -47,131 +54,141 @@ contract RPS is Owned
         _;
     }
     
-    function RPS(address[] addresses, uint[] money) 
+    function RPS(uint _playersCount) 
     public
     {     
-        startGame(addresses, money);   
+        state = StateValues.GAME_OVER;
+        startGame(_playersCount);   
     }
 
-
-    function startGame(address[] addresses, uint[] money)
+    function startGame(uint _playersCount)
+    onlyOwner
+    public
+    {        
+        require(_playersCount >= 2);
+        require(state == StateValues.GAME_OVER);
+        playersCount = _playersCount;
+        activePlayersCount = _playersCount;
+        setState(StateValues.WAITING_FOR_PLAYERS);
+    }
+    
+    function joinGame(address player)
     onlyOwner
     public
     {
-        require(addresses.length == 2);
-        require(addresses.length == money.length);
-        require(state == StateValues.GAME_OVER_ALL_WITHDRAWED);
-        moneyPool = 0;
-        for(uint i = 0; i < addresses.length; i++)
+        require(player != 0);
+        require(state == StateValues.WAITING_FOR_PLAYERS);
+        require(block.number <= deadline);
+        uint length = playersArray.push(Player(player,  0, DecisionValues.NONE, 0, 0, true));
+        players[msg.sender] = playersArray[length - 1];
+
+        if(length == playersCount)
         {
-            require(addresses[i] != 0);
-            playersArray.push(Player({addr:addresses[i], money:money[i], encryptedDecision: 0, decision:DecisionValues.NONE, salt:0}));
-            players[msg.sender] = playersArray[playersArray.length-1];
-            moneyPool += money[i];
+            setState(StateValues.WAITING_FOR_ENCRYPTED_DECISION);
         }
-        state = StateValues.DECISION;
-        decisionsLeft = playersArray.length;
-        deadline = block.number + DEADLINE_DEFAULT;
-        emit LogGameStarted(addresses, moneyPool);
     }
 
     function setState(StateValues _state)
     private
     {
-        decisionsLeft = playersArray.length;
+        messagesReceived = 0;               
         deadline = block.number + DEADLINE_DEFAULT;
+
+       /* if(_state == StateValues.Decision)
+        {
+            nonZeroDecision = 0;
+            winningDecision = 0;
+            for(uint i = 1; i <= 3; i++)
+                decisions[i] = 0;
+        }*/
+
         state = _state;
         emit LogStateChanged(msg.sender, _state);
     }
 
-    function submitDecision(bytes32 encryptedDecision)
+    function submitEncryptedDecision(bytes32 encryptedDecision)
     onlyPlayer
     public 
     {
-        require(state == StateValues.DECISION);
+        require(state == StateValues.WAITING_FOR_DECISION);
         require(block.number <= deadline);
         require(encryptedDecision != 0);
         require(players[msg.sender].encryptedDecision == 0);
         players[msg.sender].encryptedDecision = encryptedDecision;
         
-        decisionsLeft--;
+        messagesReceived++;
         emit LogDecisionSubmited(msg.sender, encryptedDecision);
-        if(decisionsLeft == 0)
+        if(messagesReceived == activePlayersCount)
            setState(StateValues.SALT);
         
             
     }
-
 
     function submitSalt(bytes32 salt, DecisionValues decision)
     public 
     onlyPlayer
     {
         Player storage p = players[msg.sender];
-        require(state==StateValues.SALT);
+        require(state==StateValues.WAITING_FOR_SALT);
         require(block.number<=deadline);
-        require(p.salt==0);        
-        require(keccak256(p.decision, p.salt) == p.encryptedDecision);
-        p.salt = salt;
+        require(salt!=0);        
+        require(keccak256(decision, salt) == p.encryptedDecision);
+        p.encryptedDecision = 0;
         p.decision = decision;
 
-        decisionsLeft--;
+        messagesReceived++;
         emit LogDecisionDecrypted(msg.sender, p.decision);
-        if(decisionsLeft == 0)
-         setState(StateValues.GAME_OVER);
+        if(messagesReceived == 0)
+            setState(StateValues.GAME_OVER);
     }    
 
-    function getReward()
-    onlyOwner
-    resultReady
-    public
-    returns(uint[] memory money)
+    function processDecision(DecisionValues decision, address player)
+    private
+    returns(bool)
     {
-        require(state == StateValues.GAME_OVER || (state != StateValues.GAME_OVER_ALL_WITHDRAWED && block.number > deadline));
-
-        money = new uint[](playersArray.length);
-      
-        int winner = determineWinner();
-        if(winner == -1)
+        if(decisions[decision] == 0) 
         {
-            money[0] = moneyPool / 2;            
-            money[1] = moneyPool - moneyPool / 2;
-            return;
+            uniqueDecisions++;
+            if(nonZeroDecision==3)
+            {                
+                setState(StateValues.Decision);
+                return false;
+            }
         }
+        decisions[decision]++;
+        
+        if(winningDecision==0)
+            winningDecision = decision;
         else 
-            money[uint(winner)] = moneyPool;
-         
-        moneyPool = 0;
-        state = StateValues.GAME_OVER_ALL_WITHDRAWED;
+        {
+            if(winningDecision > decision || (decision == 1 && winningDecision == 3))
+                winningDecision = decision;
+        }        
+
+
+        messagesReceived--;
+        emit LogDecisionDecrypted(msg.sender, p.decision);
+        if(messagesReceived == 0)
+        {
+            if(decisions[winningDecision].length == 1)                
+            {
+                winner = decisions[winner][0];
+                state = StateValues.GAME_OVER;
+            }
+            else 
+            {
+                for(int i = 0; i < playersArray.length; i++)
+                {
+                    if(!playersArray[i].deleted && playersArray.decision!=winningDecision)
+                    {
+                        activePlayersCount--;
+                        playersArray[i].deleted = true;
+                    }
+                }
+            }
+        }
+
+        return true;
     }
-
-    function determineWinner() 
-    view
-    public
-    resultReady
-    returns(int)
-    {        
-        DecisionValues decision0 = players[0].decision;      
-        DecisionValues decision1 = players[1].decision;  
-
-        if(decision0 == decision1)
-            return -1;     
-
-        if(decision0==DecisionValues.ROCK && decision1==DecisionValues.PAPER) return 1;
-        if(decision0==DecisionValues.PAPER && decision1==DecisionValues.ROCK) return 0;
-        
-        if(decision0==DecisionValues.ROCK && decision1==DecisionValues.SCISSORS) return 0;
-        if(decision0==DecisionValues.SCISSORS && decision1==DecisionValues.ROCK) return 1;
-        
-        if(decision0==DecisionValues.PAPER && decision1==DecisionValues.SCISSORS) return 1;
-        if(decision0==DecisionValues.SCISSORS && decision1==DecisionValues.PAPER) return 0;
-
-        if(decision0 == DecisionValues.NONE && decision1!=DecisionValues.NONE)return 1;
-        if(decision0 != DecisionValues.NONE && decision1==DecisionValues.NONE)return 0;
-
-        return -1;
-    }
-
-    
     
 }

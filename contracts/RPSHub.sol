@@ -9,10 +9,11 @@ contract RPSHub is MoneyManager
     {
         address player;
         uint bet;
+        bool active;
     }
 
-    mapping(address => int) public gamesByPlayerIndex;
-    mapping(address => int) public offersByPlayerIndex;
+    mapping(address => uint) public gamesByPlayerIndex;
+    mapping(address => uint) public offersByPlayerIndex;
 
     GameOffer[] public gameOffers;
     RPS[] public games;
@@ -20,6 +21,8 @@ contract RPSHub is MoneyManager
     function RPSHub()
     public
     {
+        gameOffers.push(GameOffer(0,0,false));
+        games.push(RPS(0));
     }
 
     function getReward(address addr)
@@ -32,32 +35,23 @@ contract RPSHub is MoneyManager
     public
     hasMoney(bet)
     {
-        require(offersByPlayerIndex[msg.sender] != -1);
-        require(gamesByPlayerIndex[msg.sender] != -1);
+        require(offersByPlayerIndex[msg.sender] == 0);
+        require(gamesByPlayerIndex[msg.sender] == 0);
         
-        GameOffer storage offer = GameOffer(msg.sender, bet);
-        offersByPlayer[msg.sender] = offer;
-
-
+        GameOffer memory offer = GameOffer(msg.sender, bet,true);
+        gameOffers.push(offer);
+        offersByPlayerIndex[msg.sender] = gameOffers.length - 1;        
     }
 
-    function startGame(uint proposalIndex, uint gameIndex)
+    function startGame(uint offerIndex, uint gameIndex)
     private
-    {        
-        address[] memory ads = new address[](2);
-        uint[] memory money = new uint[](2);
-
-        var proposal = gameOffers[proposalIndex];
-        ads[1] = proposal.player;
-        ads[0] = msg.sender;
-
-        money[0] = proposal.bet;
-        money[1] = proposal.bet;
-
+    {                
+        GameOffer memory offer = gameOffers[offerIndex];
+        offer.active = false;
         RPS rps;        
         if(gameIndex >= games.length)
         {
-            rps = new RPS(ads, money);
+            rps = new RPS([offer.player, msg.sender], [offer.bet, offer.bet]);
             games.push(rps);
         }
         else 
