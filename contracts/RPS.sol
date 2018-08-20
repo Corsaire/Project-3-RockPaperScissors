@@ -1,8 +1,8 @@
-pragma solidity ^0.4.21;
+pragma solidity ^0.4.23;
 
-import "./Owned.sol";
+import 'openzeppelin-solidity/contracts/ownership/Ownable.sol';
 
-contract RPS is Owned
+contract RPS is Ownable
 {
     enum StateValues { WAITING_FOR_PLAYERS, WAITING_FOR_ENCRYPTED_DECISION, WAITING_FOR_SALT, GAME_OVER}
     enum DecisionValues { NONE, ROCK, PAPER, SCISSORS}
@@ -14,9 +14,8 @@ contract RPS is Owned
         bool active;
     }
 
-
     mapping(address => Player) public players;
-    Player[] public playersArray;
+    address[] public playersAddresses;
     
     uint constant DEADLINE_DEFAULT = 100;
     uint public deadline;    

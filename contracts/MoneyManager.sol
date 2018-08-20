@@ -1,9 +1,8 @@
-pragma solidity ^0.4.21;
+pragma solidity ^0.4.23;
 
+import 'openzeppelin-solidity/contracts/ownership/Ownable.sol';
 
-import "./Owned.sol";
-
-contract MoneyManager is Owned {
+contract MoneyManager is Ownable {
 
     event LogMoneyAdded(address sender, uint value);
     event LogMoneyWithdrawed(address sender, uint value);
